@@ -89,6 +89,11 @@ const LESION_FLAGS = [
   {key:'ponte', label:'Ponte miocárdica', text:'sobre ponte miocárdica'},
 ];
 
+const IVUS_PLACA_CARACTERISTICAS = ['Fibrótica','Calcificada','Atenuada','Lipídica'];
+const OCT_PLACA_CARACTERISTICAS = ['Fibrótica','Lipídica','Calcificada','Rica em macrófagos','Neovascularização','Cristais de colesterol','Cap fibroso fino (TCFA)'];
+const ARCO_CALCIO_LABEL = { gt270: 'maior que 270°', lt270: 'menor que 270°', '360': 'de 360° (circunferencial)' };
+const SINAIS_MODIFICACAO_CALCIO = ['Fratura do cálcio','Discontinuidade acústica','Ganho luminal','Plaque Disruption','Outros'];
+
 const MEDICACOES = ['AAS','Clopidogrel','Prasugrel','Ticagrelor','HBPM','Heparina não fracionada','Bivalirrudina',
   'Agrastat','Nitroglicerina','Papaverina','Dobutamina','Dopamina','Noradrenalina','Aramin',
   'Hidrocortisona','Difenidramina'];
@@ -164,12 +169,32 @@ function saveTeamToStorage(){
    ======================================================================== */
 const PATIENT_STORAGE_KEY = 'hemolaudo_patient_v1';
 
-const GA_FIELD_IDS = ['ga_descricao','ga_via','ga_puncao','ga_lado','ga_introdutor','ga_hemostasia',
-  'ga_contrasteTipo','ga_contrasteVolume','ga_dominancia','ga_colateral','ga_colateralDetalhe',
-  'ga_padrao','ga_padraoCustom','ga_ventriculografia','ga_aortografia','ga_metodosAchados'];
+const GA_FIELD_IDS = ['ga_descricao','ga_via','ga_puncao','ga_lado',
+  'ga_introdutor','ga_introdutorCustom','ga_hemostasia','ga_hemostasiaCustom',
+  'ga_contrasteTipo','ga_contrasteTipoCustom','ga_contrasteVolume',
+  'ga_dominancia','ga_colateral','ga_colateralDetalhe','ga_colateralIncluir',
+  'ga_padrao','ga_padraoCustom','ga_ventriculografia','ga_aortografia','ga_metodosAchados',
+  'ga_ivus_arteria','ga_ivus_velocidade','ga_ivus_semLesao','ga_ivus_localizacao','ga_ivus_alm',
+  'ga_ivus_dim1','ga_ivus_dim2','ga_ivus_cargaPlaca','ga_ivus_calcio','ga_ivus_calcioExtensao',
+  'ga_ivus_calcioArco','ga_ivus_nodulo','ga_ivus_obs',
+  'ga_oct_arteria','ga_oct_semLesao','ga_oct_localizacao','ga_oct_alm','ga_oct_dim1','ga_oct_dim2',
+  'ga_oct_calcio','ga_oct_calcioEspessura','ga_oct_calcioExtensao','ga_oct_calcioArco','ga_oct_nodulo','ga_oct_obs'];
 
-const AP_FIELD_IDS = ['ap_via','ap_puncao','ap_lado','ap_introdutor','ap_hemostasia','ap_anestesia',
-  'ap_contrasteTipo','ap_contrasteVolume','ap_conclusaoExtra','ap_medicacaoOutras','ap_intercorrenciasObs'];
+const AP_FIELD_IDS = ['ap_via','ap_puncao','ap_lado',
+  'ap_introdutor','ap_introdutorCustom','ap_hemostasia','ap_hemostasiaCustom','ap_anestesia',
+  'ap_contrasteTipo','ap_contrasteTipoCustom','ap_contrasteVolume',
+  'ap_conclusaoExtra','ap_medicacaoOutras','ap_intercorrenciasObs'];
+
+/* checkboxes need .checked, everything else needs .value — these two
+   helpers keep capture/save/restore/reset agnostic to the field's type */
+function getFieldValue(id){
+  const el = document.getElementById(id);
+  return el.type === 'checkbox' ? el.checked : el.value;
+}
+function setFieldValue(id, value){
+  const el = document.getElementById(id);
+  if(el.type === 'checkbox') el.checked = !!value; else el.value = value;
+}
 
 /* captured once, right after the HTML's own hardcoded defaults are parsed —
    used to restore a truly blank form when "Novo laudo" is clicked */
@@ -177,9 +202,9 @@ let GA_DEFAULTS = null;
 let AP_DEFAULTS = null;
 function captureFieldDefaults(){
   GA_DEFAULTS = {};
-  GA_FIELD_IDS.forEach(id => { GA_DEFAULTS[id] = document.getElementById(id).value; });
+  GA_FIELD_IDS.forEach(id => { GA_DEFAULTS[id] = getFieldValue(id); });
   AP_DEFAULTS = {};
-  AP_FIELD_IDS.forEach(id => { AP_DEFAULTS[id] = document.getElementById(id).value; });
+  AP_FIELD_IDS.forEach(id => { AP_DEFAULTS[id] = getFieldValue(id); });
 }
 
 let patientSaveTimer = null;
@@ -189,16 +214,26 @@ function schedulePatientSave(){
 }
 function savePatientData(){
   try{
-    const fieldValues = ids => Object.fromEntries(ids.map(id => [id, document.getElementById(id).value]));
+    const fieldValues = ids => Object.fromEntries(ids.map(id => [id, getFieldValue(id)]));
     localStorage.setItem(PATIENT_STORAGE_KEY, JSON.stringify({
       angiografia: {
         vasos: state.angiografia.vasos,
         metodos: Array.from(state.angiografia.metodos),
         metodosInfluencia: state.angiografia.metodosInfluencia,
+        ivusCaracteristicas: Array.from(gaIvusCaracteristicas),
+        octCaracteristicas: Array.from(gaOctCaracteristicas),
         fields: fieldValues(GA_FIELD_IDS),
       },
       angioplastia: {
-        vasos: state.angioplastia.vasos.map(v => ({...v, complicacoes: Array.from(v.complicacoes)})),
+        vasos: state.angioplastia.vasos.map(v => ({
+          ...v,
+          complicacoes: Array.from(v.complicacoes),
+          devices: v.devices.map(d => ({
+            ...d,
+            caracteristicas: Array.from(d.caracteristicas || []),
+            sinaisModificacao: Array.from(d.sinaisModificacao || []),
+          })),
+        })),
         medicacao: Array.from(state.angioplastia.medicacao),
         intercorrencias: Array.from(state.angioplastia.intercorrencias),
         fields: fieldValues(AP_FIELD_IDS),
@@ -219,18 +254,30 @@ function loadPatientData(){
 
   const restoreFields = (ids, fields) => {
     if(!fields) return;
-    ids.forEach(id => { if(id in fields) document.getElementById(id).value = fields[id]; });
+    ids.forEach(id => { if(id in fields) setFieldValue(id, fields[id]); });
   };
 
   if(saved.angiografia){
     state.angiografia.vasos = Array.isArray(saved.angiografia.vasos) ? saved.angiografia.vasos : [];
     state.angiografia.metodos = new Set(saved.angiografia.metodos || []);
     state.angiografia.metodosInfluencia = saved.angiografia.metodosInfluencia || null;
+    gaIvusCaracteristicas.clear();
+    (saved.angiografia.ivusCaracteristicas || []).forEach(c => gaIvusCaracteristicas.add(c));
+    gaOctCaracteristicas.clear();
+    (saved.angiografia.octCaracteristicas || []).forEach(c => gaOctCaracteristicas.add(c));
     restoreFields(GA_FIELD_IDS, saved.angiografia.fields);
   }
   if(saved.angioplastia){
     state.angioplastia.vasos = (Array.isArray(saved.angioplastia.vasos) ? saved.angioplastia.vasos : [])
-      .map(v => ({...v, complicacoes: new Set(v.complicacoes || [])}));
+      .map(v => ({
+        ...v,
+        complicacoes: new Set(v.complicacoes || []),
+        devices: (v.devices || []).map(d => ({
+          ...d,
+          caracteristicas: new Set(d.caracteristicas || []),
+          sinaisModificacao: new Set(d.sinaisModificacao || []),
+        })),
+      }));
     state.angioplastia.medicacao = new Set(saved.angioplastia.medicacao || []);
     state.angioplastia.intercorrencias = new Set(saved.angioplastia.intercorrencias || []);
     restoreFields(AP_FIELD_IDS, saved.angioplastia.fields);
@@ -567,14 +614,19 @@ function wireGaVesselEvents(){
 }
 
 /* métodos adjuntos chips */
+function syncGaMetodosWraps(){
+  document.getElementById('ga_metodosInfluenciaWrap').style.display = state.angiografia.metodos.size ? 'flex' : 'none';
+  document.getElementById('ga_metodosAchadosWrap').style.display = state.angiografia.metodos.size ? 'flex' : 'none';
+  document.getElementById('ga_ivusBuilderWrap').style.display = state.angiografia.metodos.has('USIC') ? 'flex' : 'none';
+  document.getElementById('ga_octBuilderWrap').style.display = state.angiografia.metodos.has('OCT') ? 'flex' : 'none';
+}
 document.querySelectorAll('#ga_metodos .chip').forEach(chip=>{
   chip.addEventListener('click', ()=>{
     const key = chip.dataset.key;
     if(state.angiografia.metodos.has(key)) state.angiografia.metodos.delete(key);
     else state.angiografia.metodos.add(key);
     setChipPressed(chip, state.angiografia.metodos.has(key));
-    document.getElementById('ga_metodosInfluenciaWrap').style.display = state.angiografia.metodos.size ? 'flex' : 'none';
-    document.getElementById('ga_metodosAchadosWrap').style.display = state.angiografia.metodos.size ? 'flex' : 'none';
+    syncGaMetodosWraps();
     updateAngiografiaPreview();
   });
 });
@@ -586,6 +638,125 @@ document.querySelectorAll('#ga_metodosInfluenciaWrap .chip').forEach(chip=>{
     updateAngiografiaPreview();
   });
 });
+
+/* ========================================================================
+   IVUS / OCT — construtor de frase padrão (dentro de Métodos adjuntos)
+   ======================================================================== */
+const gaIvusCaracteristicas = new Set();
+const gaOctCaracteristicas = new Set();
+
+function buildCaracteristicasChips(containerId, list, selectedSet, onChange){
+  const container = document.getElementById(containerId);
+  container.innerHTML = list.map(c => `<button type="button" class="chip" aria-pressed="false" data-carac="${esc(c)}">${esc(c)}</button>`).join('');
+  container.querySelectorAll('.chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const c = chip.dataset.carac;
+      if(selectedSet.has(c)) selectedSet.delete(c); else selectedSet.add(c);
+      setChipPressed(chip, selectedSet.has(c));
+      onChange();
+    });
+  });
+}
+buildCaracteristicasChips('ga_ivus_caracteristicas', IVUS_PLACA_CARACTERISTICAS, gaIvusCaracteristicas, updateAngiografiaPreview);
+buildCaracteristicasChips('ga_oct_caracteristicas', OCT_PLACA_CARACTERISTICAS, gaOctCaracteristicas, updateAngiografiaPreview);
+
+/* "sem lesão" / "presença de cálcio" toggles — same show/hide pattern as a vessel's "sem lesões obstrutivas" */
+function wireDetailToggle(checkboxId, wrapId, onChange, invert){
+  const chk = document.getElementById(checkboxId);
+  const wrap = document.getElementById(wrapId);
+  const sync = () => { wrap.style.display = (invert ? !chk.checked : chk.checked) ? 'block' : 'none'; };
+  chk.addEventListener('change', ()=>{ sync(); onChange(); });
+  sync();
+  return sync;
+}
+const syncGaIvusDetalhes = wireDetailToggle('ga_ivus_semLesao', 'ga_ivus_detalhesWrap', updateAngiografiaPreview, true);
+const syncGaIvusCalcio = wireDetailToggle('ga_ivus_calcio', 'ga_ivus_calcioWrap', updateAngiografiaPreview, false);
+const syncGaOctDetalhes = wireDetailToggle('ga_oct_semLesao', 'ga_oct_detalhesWrap', updateAngiografiaPreview, true);
+const syncGaOctCalcio = wireDetailToggle('ga_oct_calcio', 'ga_oct_calcioWrap', updateAngiografiaPreview, false);
+
+const GA_IVUS_FIELD_IDS = ['ga_ivus_arteria','ga_ivus_velocidade','ga_ivus_localizacao','ga_ivus_alm',
+  'ga_ivus_dim1','ga_ivus_dim2','ga_ivus_cargaPlaca','ga_ivus_calcioExtensao','ga_ivus_calcioArco','ga_ivus_nodulo','ga_ivus_obs'];
+const GA_OCT_FIELD_IDS = ['ga_oct_arteria','ga_oct_localizacao','ga_oct_alm','ga_oct_dim1','ga_oct_dim2',
+  'ga_oct_calcioEspessura','ga_oct_calcioExtensao','ga_oct_calcioArco','ga_oct_nodulo','ga_oct_obs'];
+[...GA_IVUS_FIELD_IDS, ...GA_OCT_FIELD_IDS].forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('input', updateAngiografiaPreview);
+  el.addEventListener('change', updateAngiografiaPreview);
+});
+
+/* montam a frase de IVUS/OCT a partir dos campos estruturados — a mesma função
+   serve para o construtor da coronariografia e (mais adiante) para os
+   dispositivos "IVUS/OCT antes da ICP" no vaso tratado da angioplastia */
+function buildImagingSentence(cfg){
+  const arteria = (cfg.arteria || '').trim() || '***';
+  let s = `Realizado ${cfg.modality} da artéria ${arteria} com cateter ${cfg.catheter}. `;
+  s += cfg.velocidade
+    ? `Aquisição de imagens utilizando recuo automático do cateter a ${cfg.velocidade} mm/s.`
+    : `Aquisição de imagens utilizando recuo automático do cateter a 75 mm/s durante injeção de contraste.`;
+  if(cfg.diametroReferencia) s += ` Diâmetro de referência do vaso distal de ${cfg.diametroReferencia} mm.`;
+
+  if(cfg.semLesao){
+    s += ' Não foi observada lesão significativa.';
+  } else {
+    const carac = (cfg.caracteristicas || []).join(', ').toLowerCase();
+    s += ` Na porção ${(cfg.localizacao || '').toLowerCase()} da artéria, observada placa aterosclerótica${carac ? ' ' + carac : ''}`;
+    if(cfg.alm) s += ` com área luminal mínima de ${cfg.alm} mm²`;
+    if(cfg.dim1 && cfg.dim2) s += ` (${cfg.dim1} x ${cfg.dim2} mm)`;
+    if(cfg.cargaPlaca) s += `, carga de placa de ${cfg.cargaPlaca}%`;
+    if(cfg.calcio){
+      s += ', com presença de cálcio';
+      if(cfg.calcioEspessura) s += `, ${cfg.calcioEspessura} mm de espessura`;
+      if(cfg.calcioExtensao) s += `, ${cfg.calcioExtensao} mm de extensão`;
+      if(cfg.calcioArco && ARCO_CALCIO_LABEL[cfg.calcioArco]) s += ` e arco de cálcio ${ARCO_CALCIO_LABEL[cfg.calcioArco]}`;
+      if(cfg.nodulo) s += ', com nódulo de cálcio associado';
+      s += '.';
+    } else {
+      s += ', sem presença de cálcio.';
+    }
+  }
+  if(cfg.obs && cfg.obs.trim()) s += ' ' + cfg.obs.trim();
+  return s;
+}
+
+function readGaIvusBuilder(){
+  return {
+    modality: 'IVUS', catheter: 'OptiCross 40MHz',
+    arteria: document.getElementById('ga_ivus_arteria').value,
+    velocidade: document.getElementById('ga_ivus_velocidade').value,
+    semLesao: document.getElementById('ga_ivus_semLesao').checked,
+    localizacao: document.getElementById('ga_ivus_localizacao').value,
+    caracteristicas: Array.from(gaIvusCaracteristicas),
+    alm: document.getElementById('ga_ivus_alm').value,
+    dim1: document.getElementById('ga_ivus_dim1').value,
+    dim2: document.getElementById('ga_ivus_dim2').value,
+    cargaPlaca: document.getElementById('ga_ivus_cargaPlaca').value,
+    calcio: document.getElementById('ga_ivus_calcio').checked,
+    calcioExtensao: document.getElementById('ga_ivus_calcioExtensao').value,
+    calcioArco: document.getElementById('ga_ivus_calcioArco').value,
+    nodulo: document.getElementById('ga_ivus_nodulo').checked,
+    obs: document.getElementById('ga_ivus_obs').value,
+  };
+}
+function readGaOctBuilder(){
+  return {
+    modality: 'OCT', catheter: 'C7 Dragonfly OpStar',
+    arteria: document.getElementById('ga_oct_arteria').value,
+    velocidade: null,
+    semLesao: document.getElementById('ga_oct_semLesao').checked,
+    localizacao: document.getElementById('ga_oct_localizacao').value,
+    caracteristicas: Array.from(gaOctCaracteristicas),
+    alm: document.getElementById('ga_oct_alm').value,
+    dim1: document.getElementById('ga_oct_dim1').value,
+    dim2: document.getElementById('ga_oct_dim2').value,
+    cargaPlaca: null,
+    calcio: document.getElementById('ga_oct_calcio').checked,
+    calcioEspessura: document.getElementById('ga_oct_calcioEspessura').value,
+    calcioExtensao: document.getElementById('ga_oct_calcioExtensao').value,
+    calcioArco: document.getElementById('ga_oct_calcioArco').value,
+    nodulo: document.getElementById('ga_oct_nodulo').checked,
+    obs: document.getElementById('ga_oct_obs').value,
+  };
+}
 
 /* colateral toggle */
 const gaColateralSel = document.getElementById('ga_colateral');
@@ -599,6 +770,46 @@ const gaPadraoSel = document.getElementById('ga_padrao');
 gaPadraoSel.addEventListener('change', ()=>{
   document.getElementById('ga_padraoCustomWrap').style.display = gaPadraoSel.value === 'custom' ? 'flex' : 'none';
   updateAngiografiaPreview();
+});
+
+/* "select com opção Personalizado…" pattern — introdutor, hemostasia, contraste.
+   wireCustomSelect returns its sync() so a reset action can re-run it after
+   restoring the select's value (setting .value doesn't fire 'change'). */
+function wireCustomSelect(selectId, wrapId, onChange){
+  const sel = document.getElementById(selectId);
+  const wrap = document.getElementById(wrapId);
+  const sync = () => { wrap.style.display = sel.value === 'custom' ? 'flex' : 'none'; };
+  sel.addEventListener('change', ()=>{ sync(); onChange(); });
+  sync();
+  return sync;
+}
+function resolveCustomSelect(selectId, customId){
+  const sel = document.getElementById(selectId);
+  if(sel.value !== 'custom') return sel.value;
+  return document.getElementById(customId).value.trim();
+}
+const syncGaIntrodutorWrap = wireCustomSelect('ga_introdutor', 'ga_introdutorCustomWrap', updateAngiografiaPreview);
+const syncGaHemostasiaWrap = wireCustomSelect('ga_hemostasia', 'ga_hemostasiaCustomWrap', updateAngiografiaPreview);
+const syncGaContrasteWrap = wireCustomSelect('ga_contrasteTipo', 'ga_contrasteTipoCustomWrap', updateAngiografiaPreview);
+const syncApIntrodutorWrap = wireCustomSelect('ap_introdutor', 'ap_introdutorCustomWrap', updateAngioplastiaPreview);
+const syncApHemostasiaWrap = wireCustomSelect('ap_hemostasia', 'ap_hemostasiaCustomWrap', updateAngioplastiaPreview);
+const syncApContrasteWrap = wireCustomSelect('ap_contrasteTipo', 'ap_contrasteTipoCustomWrap', updateAngioplastiaPreview);
+
+/* card-scoped "Limpar" — restores just the Técnica fields, leaves vasos/achados alone */
+const GA_TECNICA_FIELD_IDS = ['ga_via','ga_puncao','ga_lado','ga_introdutor','ga_introdutorCustom',
+  'ga_hemostasia','ga_hemostasiaCustom','ga_contrasteTipo','ga_contrasteTipoCustom','ga_contrasteVolume'];
+const AP_TECNICA_FIELD_IDS = ['ap_via','ap_puncao','ap_lado','ap_introdutor','ap_introdutorCustom',
+  'ap_hemostasia','ap_hemostasiaCustom','ap_anestesia','ap_contrasteTipo','ap_contrasteTipoCustom','ap_contrasteVolume'];
+
+document.getElementById('ga_tecnicaClear').addEventListener('click', ()=>{
+  GA_TECNICA_FIELD_IDS.forEach(id => setFieldValue(id, GA_DEFAULTS[id]));
+  syncGaIntrodutorWrap(); syncGaHemostasiaWrap(); syncGaContrasteWrap();
+  updateAngiografiaPreview();
+});
+document.getElementById('ap_tecnicaClear').addEventListener('click', ()=>{
+  AP_TECNICA_FIELD_IDS.forEach(id => setFieldValue(id, AP_DEFAULTS[id]));
+  syncApIntrodutorWrap(); syncApHemostasiaWrap(); syncApContrasteWrap();
+  updateAngioplastiaPreview();
 });
 
 /* dominância — toggle ponte panel + carregar vasos padrão */
@@ -664,8 +875,9 @@ document.querySelectorAll('.collapse-toggle').forEach(btn=>{
 });
 
 /* generic inputs -> preview refresh */
-['ga_descricao','ga_via','ga_puncao','ga_lado','ga_introdutor','ga_hemostasia','ga_contrasteTipo','ga_contrasteVolume',
- 'ga_dominancia','ga_colateralDetalhe','ga_padraoCustom','ga_ventriculografia','ga_aortografia','ga_metodosAchados'
+['ga_descricao','ga_via','ga_puncao','ga_lado','ga_introdutor','ga_introdutorCustom','ga_hemostasia','ga_hemostasiaCustom',
+ 'ga_contrasteTipo','ga_contrasteTipoCustom','ga_contrasteVolume',
+ 'ga_dominancia','ga_colateralDetalhe','ga_colateralIncluir','ga_padraoCustom','ga_ventriculografia','ga_aortografia','ga_metodosAchados'
 ].forEach(id=>{
   const el = document.getElementById(id);
   el.addEventListener('input', updateAngiografiaPreview);
@@ -687,11 +899,14 @@ function buildAngiografiaText(){
   if(desc) out.push('\n' + desc);
 
   out.push('\nTÉCNICA');
+  const gaIntrodutorVal = resolveCustomSelect('ga_introdutor', 'ga_introdutorCustom');
+  const gaHemostasiaVal = resolveCustomSelect('ga_hemostasia', 'ga_hemostasiaCustom');
+  const gaContrasteVal = resolveCustomSelect('ga_contrasteTipo', 'ga_contrasteTipoCustom');
   let tecLine = `Via de Acesso: ${g('ga_via')}, punção ${g('ga_puncao').toLowerCase()} ${g('ga_lado').toLowerCase()}`;
-  if(g('ga_introdutor').trim()) tecLine += `, introdutor ${g('ga_introdutor').trim()}`;
-  if(g('ga_hemostasia').trim()) tecLine += `, hemostasia com ${g('ga_hemostasia').trim().toLowerCase()}`;
+  if(gaIntrodutorVal.trim()) tecLine += `, introdutor ${gaIntrodutorVal.trim()}`;
+  if(gaHemostasiaVal.trim()) tecLine += `, hemostasia com ${gaHemostasiaVal.trim().toLowerCase()}`;
   out.push(tecLine + '.');
-  out.push(`Contraste: ${g('ga_contrasteTipo').trim()}, volume (ml) = ${g('ga_contrasteVolume') || '0'}.`);
+  out.push(`Contraste: ${gaContrasteVal.trim()}, volume (ml) = ${g('ga_contrasteVolume') || '0'}.`);
 
   out.push('\nCORONARIOGRAFIA');
 
@@ -721,12 +936,13 @@ function buildAngiografiaText(){
     out.push('\nNenhum vaso adicionado.');
   }
 
-  const colateral = g('ga_colateral' in {} ? '' : 'ga_colateral');
-  const colVal = document.getElementById('ga_colateral').value;
-  let colLine = 'Circulação colateral ' + colVal.toLowerCase();
-  const colDet = document.getElementById('ga_colateralDetalhe').value.trim();
-  if(colVal === 'Presente' && colDet) colLine += ' (' + colDet + ')';
-  out.push('\n' + colLine + '.');
+  if(document.getElementById('ga_colateralIncluir').checked){
+    const colVal = document.getElementById('ga_colateral').value;
+    let colLine = 'Circulação colateral ' + colVal.toLowerCase();
+    const colDet = document.getElementById('ga_colateralDetalhe').value.trim();
+    if(colVal === 'Presente' && colDet) colLine += ' (' + colDet + ')';
+    out.push('\n' + colLine + '.');
+  }
 
   out.push('\nDADOS DO CATETERISMO');
   out.push('Dominância: ' + document.getElementById('ga_dominancia').value + '.');
@@ -738,6 +954,8 @@ function buildAngiografiaText(){
     let line = 'Métodos adjuntos utilizados: ' + Array.from(s.metodos).join(', ') + '.';
     if(s.metodosInfluencia) line += ' ' + (s.metodosInfluencia === 'Sim' ? 'Influenciaram' : 'Não influenciaram') + ' a conduta terapêutica.';
     out.push('\n' + line);
+    if(s.metodos.has('USIC')) out.push(buildImagingSentence(readGaIvusBuilder()));
+    if(s.metodos.has('OCT')) out.push(buildImagingSentence(readGaOctBuilder()));
     const achados = document.getElementById('ga_metodosAchados').value.trim();
     if(achados) out.push(achados);
   }
@@ -813,8 +1031,37 @@ function newTreatedVessel(preset){
     complicacoes: new Set(),
   };
 }
+const DEVICE_FASE_LABELS = {
+  pre: 'Balão (pré-dilatação)', stent: 'Stent', pos: 'Balão (pós-dilatação)',
+  ivus_pre: 'IVUS — antes da ICP', ivus_pos_pre: 'IVUS — após pré-dilatação', ivus_pos_stent: 'IVUS — após implante de stent',
+  oct_pre: 'OCT — antes da ICP', oct_pos_pre: 'OCT — após pré-dilatação', oct_pos_stent: 'OCT — após implante de stent',
+  rotablator: 'Rotablator', litotripsia: 'Litotripsia intracoronária', cutting_balloon: 'Cutting balloon',
+};
+const DEVICE_FASE_ORDER = ['ivus_pre','oct_pre','rotablator','litotripsia','cutting_balloon',
+  'pre','ivus_pos_pre','oct_pos_pre','stent','ivus_pos_stent','oct_pos_stent','pos'];
+const DEVICE_FASE_GROUPS = [
+  {label:'Balão / Stent', fases:['pre','stent','pos']},
+  {label:'Imagem intravascular — IVUS', fases:['ivus_pre','ivus_pos_pre','ivus_pos_stent']},
+  {label:'Imagem intravascular — OCT', fases:['oct_pre','oct_pos_pre','oct_pos_stent']},
+  {label:'Preparo de lesão calcificada', fases:['rotablator','litotripsia','cutting_balloon']},
+];
+
 function newDevice(fase){
-  return { id: nextId(), fase: fase || 'stent', tipoStent:'Farmacológico', descricao:'', diametro:'', comprimento:'', pressao:'', obs:'' };
+  fase = fase || 'stent';
+  return {
+    id: nextId(), fase,
+    /* balão / stent */
+    tipoStent:'Farmacológico', descricao:'', diametro:'', comprimento:'',
+    pressao: fase === 'cutting_balloon' ? '18' : '', obs:'',
+    /* IVUS / OCT (antes da ICP, após pré-dilatação, após stent) */
+    arteria:'', velocidade:'', semLesao:false, localizacao:'Proximal', caracteristicas: new Set(),
+    alm:'', dim1:'', dim2:'', cargaPlaca:'', calcio:false, calcioEspessura:'', calcioExtensao:'',
+    calcioArco:'gt270', nodulo:false, diametroReferencia:'',
+    sinaisModificacao: new Set(), sinaisModificacaoOutro:'',
+    areaMinimaStent:'',
+    /* litotripsia */
+    pulsos:'',
+  };
 }
 
 document.getElementById('ap_addPreset').addEventListener('click', ()=>{
@@ -829,36 +1076,144 @@ document.getElementById('ap_addCustom').addEventListener('click', ()=>{
   updateAngioplastiaPreview();
 });
 
-function deviceRowHtml(v, d){
-  const faseOpts = [['pre','Pré-dilatação'],['stent','Stent'],['pos','Pós-dilatação']]
-    .map(([val,label])=>`<option value="${val}" ${d.fase===val?'selected':''}>${label}</option>`).join('');
+function balaoStentFieldsHtml(d){
   const sug = d.fase === 'stent' ? STENT_SUG : BALAO_SUG;
   const listId = 'sug_' + d.id;
+  return `
+    <div class="field-grid">
+      ${d.fase === 'stent' ? `
+      <div class="field"><label>Tipo de stent</label>
+        <select data-dfield="tipoStent">
+          <option ${d.tipoStent==='Farmacológico'?'selected':''}>Farmacológico</option>
+          <option ${d.tipoStent==='Convencional'?'selected':''}>Convencional</option>
+        </select>
+      </div>` : ''}
+      <div class="field span-2"><label>${d.fase==='stent'?'Modelo do stent':'Modelo do balão'}</label>
+        <input type="text" data-dfield="descricao" value="${esc(d.descricao)}" list="${listId}" placeholder="ex.: ${sug[0]}">
+        <datalist id="${listId}">${sug.map(x=>`<option value="${x}">`).join('')}</datalist>
+      </div>
+      <div class="field"><label>Diâmetro</label><div class="unit-field"><input type="number" step="0.25" data-dfield="diametro" value="${esc(d.diametro)}"><span>mm</span></div></div>
+      <div class="field"><label>Comprimento</label><div class="unit-field"><input type="number" step="1" data-dfield="comprimento" value="${esc(d.comprimento)}"><span>mm</span></div></div>
+      <div class="field"><label>Pressão</label><div class="unit-field"><input type="number" step="1" data-dfield="pressao" value="${esc(d.pressao)}"><span>atm</span></div></div>
+      <div class="field span-2"><label>Observação (opcional)</label>
+        <input type="text" data-dfield="obs" value="${esc(d.obs)}" placeholder="ex.: leve resistência à passagem do fio">
+      </div>
+    </div>`;
+}
+
+function imagingPreFieldsHtml(d, modality){
+  const caracList = modality === 'ivus' ? IVUS_PLACA_CARACTERISTICAS : OCT_PLACA_CARACTERISTICAS;
+  const caracChips = caracList.map(c => `<button type="button" class="chip ${d.caracteristicas.has(c)?'active':''}" aria-pressed="${d.caracteristicas.has(c)?'true':'false'}" data-carac="${esc(c)}">${esc(c)}</button>`).join('');
+  return `
+    <div class="field-grid">
+      <div class="field span-2"><label>Artéria avaliada</label><input type="text" data-dfield="arteria" value="${esc(d.arteria)}" placeholder="ex.: DA"></div>
+      ${modality === 'ivus' ? `<div class="field"><label>Velocidade de recuo</label><div class="unit-field"><input type="number" step="0.1" data-dfield="velocidade" value="${esc(d.velocidade)}"><span>mm/s</span></div></div>` : ''}
+      <div class="field"><label>Diâmetro de referência do vaso distal</label><div class="unit-field"><input type="number" step="0.1" data-dfield="diametroReferencia" value="${esc(d.diametroReferencia)}"><span>mm</span></div></div>
+    </div>
+    <label class="checkline"><input type="checkbox" data-dfield="semLesao" ${d.semLesao?'checked':''}> Não foi observada lesão significativa</label>
+    ${!d.semLesao ? `
+    <div class="field-grid">
+      <div class="field"><label>Localização</label>
+        <select data-dfield="localizacao">
+          <option ${d.localizacao==='Proximal'?'selected':''}>Proximal</option>
+          <option ${d.localizacao==='Médio'?'selected':''}>Médio</option>
+          <option ${d.localizacao==='Distal'?'selected':''}>Distal</option>
+        </select>
+      </div>
+      <div class="field"><label>Área luminal mínima</label><div class="unit-field"><input type="number" step="0.01" data-dfield="alm" value="${esc(d.alm)}"><span>mm²</span></div></div>
+      <div class="field"><label>Dimensões (menor x maior)</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="number" step="0.01" data-dfield="dim1" value="${esc(d.dim1)}" placeholder="mm">
+          <span style="color:var(--muted);">x</span>
+          <input type="number" step="0.01" data-dfield="dim2" value="${esc(d.dim2)}" placeholder="mm">
+        </div>
+      </div>
+      ${modality === 'ivus' ? `<div class="field"><label>Carga de placa</label><div class="unit-field"><input type="number" data-dfield="cargaPlaca" value="${esc(d.cargaPlaca)}"><span>%</span></div></div>` : ''}
+    </div>
+    <div class="field"><label>Características da placa</label><div class="chip-group" data-carac-group>${caracChips}</div></div>
+    <label class="checkline"><input type="checkbox" data-dfield="calcio" ${d.calcio?'checked':''}> Presença de cálcio</label>
+    ${d.calcio ? `
+    <div class="field-grid">
+      ${modality === 'oct' ? `<div class="field"><label>Espessura do cálcio</label><div class="unit-field"><input type="number" step="0.01" data-dfield="calcioEspessura" value="${esc(d.calcioEspessura)}"><span>mm</span></div></div>` : ''}
+      <div class="field"><label>Extensão do cálcio</label><div class="unit-field"><input type="number" step="0.1" data-dfield="calcioExtensao" value="${esc(d.calcioExtensao)}"><span>mm</span></div></div>
+      <div class="field"><label>Arco de cálcio</label>
+        <select data-dfield="calcioArco">
+          <option value="gt270" ${d.calcioArco==='gt270'?'selected':''}>Maior que 270°</option>
+          <option value="lt270" ${d.calcioArco==='lt270'?'selected':''}>Menor que 270°</option>
+          <option value="360" ${d.calcioArco==='360'?'selected':''}>360° (circunferencial)</option>
+        </select>
+      </div>
+      <div class="field span-2"><label class="checkline"><input type="checkbox" data-dfield="nodulo" ${d.nodulo?'checked':''}> Nódulo de cálcio presente</label></div>
+    </div>` : ''}
+    ` : ''}
+    <div class="field"><label>Observações (opcional)</label><textarea data-dfield="obs">${esc(d.obs)}</textarea></div>`;
+}
+
+function imagingPosPreFieldsHtml(d, modality){
+  const sinaisChips = SINAIS_MODIFICACAO_CALCIO.map(s => `<button type="button" class="chip ${d.sinaisModificacao.has(s)?'active':''}" aria-pressed="${d.sinaisModificacao.has(s)?'true':'false'}" data-sinal="${esc(s)}">${esc(s)}</button>`).join('');
+  return `
+    <div class="field-grid">
+      <div class="field span-2"><label>Artéria avaliada</label><input type="text" data-dfield="arteria" value="${esc(d.arteria)}" placeholder="ex.: DA"></div>
+      ${modality === 'ivus' ? `<div class="field"><label>Velocidade de recuo</label><div class="unit-field"><input type="number" step="0.1" data-dfield="velocidade" value="${esc(d.velocidade)}"><span>mm/s</span></div></div>` : ''}
+    </div>
+    <div class="field"><label>Sinais de modificação do cálcio</label><div class="chip-group" data-sinal-group>${sinaisChips}</div></div>
+    ${d.sinaisModificacao.has('Outros') ? `<div class="field"><label>Descreva "Outros"</label><input type="text" data-dfield="sinaisModificacaoOutro" value="${esc(d.sinaisModificacaoOutro)}"></div>` : ''}`;
+}
+
+function imagingPosStentFieldsHtml(d){
+  return `
+    <div class="field-grid">
+      <div class="field"><label>Área mínima do stent</label><div class="unit-field"><input type="number" step="0.01" data-dfield="areaMinimaStent" value="${esc(d.areaMinimaStent)}"><span>mm²</span></div></div>
+    </div>
+    <div class="field"><label>Observações (opcional)</label><textarea data-dfield="obs">${esc(d.obs)}</textarea></div>`;
+}
+
+function rotablatorFieldsHtml(d){
+  return `<div class="field-grid">
+    <div class="field"><label>Burr</label><div class="unit-field"><input type="number" step="0.25" data-dfield="diametro" value="${esc(d.diametro)}"><span>mm</span></div></div>
+  </div>`;
+}
+function litotripsiaFieldsHtml(d){
+  return `<div class="field-grid">
+    <div class="field"><label>Diâmetro</label><div class="unit-field"><input type="number" step="0.25" data-dfield="diametro" value="${esc(d.diametro)}"><span>mm</span></div></div>
+    <div class="field"><label>Comprimento</label><div class="unit-field"><input type="number" step="1" data-dfield="comprimento" value="${esc(d.comprimento)}"><span>mm</span></div></div>
+    <div class="field"><label>Pulsos</label><input type="number" step="1" data-dfield="pulsos" value="${esc(d.pulsos)}"></div>
+  </div>`;
+}
+function cuttingBalloonFieldsHtml(d){
+  return `<div class="field-grid">
+    <div class="field"><label>Diâmetro</label><div class="unit-field"><input type="number" step="0.25" data-dfield="diametro" value="${esc(d.diametro)}"><span>mm</span></div></div>
+    <div class="field"><label>Comprimento</label><div class="unit-field"><input type="number" step="1" data-dfield="comprimento" value="${esc(d.comprimento)}"><span>mm</span></div></div>
+    <div class="field"><label>Pressão</label><div class="unit-field"><input type="number" step="1" data-dfield="pressao" value="${esc(d.pressao)}"><span>atm</span></div></div>
+  </div>`;
+}
+
+function deviceFieldsHtml(d){
+  if(d.fase === 'pre' || d.fase === 'stent' || d.fase === 'pos') return balaoStentFieldsHtml(d);
+  if(d.fase === 'ivus_pre') return imagingPreFieldsHtml(d, 'ivus');
+  if(d.fase === 'oct_pre') return imagingPreFieldsHtml(d, 'oct');
+  if(d.fase === 'ivus_pos_pre') return imagingPosPreFieldsHtml(d, 'ivus');
+  if(d.fase === 'oct_pos_pre') return imagingPosPreFieldsHtml(d, 'oct');
+  if(d.fase === 'ivus_pos_stent' || d.fase === 'oct_pos_stent') return imagingPosStentFieldsHtml(d);
+  if(d.fase === 'rotablator') return rotablatorFieldsHtml(d);
+  if(d.fase === 'litotripsia') return litotripsiaFieldsHtml(d);
+  if(d.fase === 'cutting_balloon') return cuttingBalloonFieldsHtml(d);
+  return '';
+}
+
+function deviceRowHtml(v, d){
+  const faseOptsHtml = DEVICE_FASE_GROUPS.map(g => '<optgroup label="' + esc(g.label) + '">' +
+    g.fases.map(f => `<option value="${f}" ${d.fase===f?'selected':''}>${esc(DEVICE_FASE_LABELS[f])}</option>`).join('') +
+    '</optgroup>').join('');
   return `
   <div class="device-row" data-did="${d.id}">
     <div class="row-top">
       <div class="field-grid">
-        <div class="field"><label>Fase</label><select data-dfield="fase">${faseOpts}</select></div>
-        ${d.fase === 'stent' ? `
-        <div class="field"><label>Tipo de stent</label>
-          <select data-dfield="tipoStent">
-            <option ${d.tipoStent==='Farmacológico'?'selected':''}>Farmacológico</option>
-            <option ${d.tipoStent==='Convencional'?'selected':''}>Convencional</option>
-          </select>
-        </div>` : ''}
-        <div class="field span-2"><label>${d.fase==='stent'?'Modelo do stent':'Modelo do balão'}</label>
-          <input type="text" data-dfield="descricao" value="${esc(d.descricao)}" list="${listId}" placeholder="ex.: ${sug[0]}">
-          <datalist id="${listId}">${sug.map(x=>`<option value="${x}">`).join('')}</datalist>
-        </div>
-        <div class="field"><label>Diâmetro</label><div class="unit-field"><input type="number" step="0.25" data-dfield="diametro" value="${esc(d.diametro)}"><span>mm</span></div></div>
-        <div class="field"><label>Comprimento</label><div class="unit-field"><input type="number" step="1" data-dfield="comprimento" value="${esc(d.comprimento)}"><span>mm</span></div></div>
-        <div class="field"><label>Pressão</label><div class="unit-field"><input type="number" step="1" data-dfield="pressao" value="${esc(d.pressao)}"><span>atm</span></div></div>
-        <div class="field span-2"><label>Observação (opcional)</label>
-          <input type="text" data-dfield="obs" value="${esc(d.obs)}" placeholder="ex.: leve resistência à passagem do fio">
-        </div>
+        <div class="field span-2"><label>Fase</label><select data-dfield="fase">${faseOptsHtml}</select></div>
       </div>
       <button class="icon-btn" data-remove-device title="Remover dispositivo">✕</button>
     </div>
+    ${deviceFieldsHtml(d)}
   </div>`;
 }
 
@@ -898,9 +1253,9 @@ function treatedVesselCardHtml(v){
       <span class="card-sub" style="font-weight:700;">Dispositivos utilizados (em ordem)</span>
       ${(v.devices||[]).map(d=>deviceRowHtml(v,d)).join('') || '<p class="empty-note">Nenhum dispositivo adicionado.</p>'}
       <div class="add-row">
-        <button class="btn btn-sm btn-ghost" data-add-device="pre">+ Balão (pré-dilatação)</button>
-        <button class="btn btn-sm btn-ghost" data-add-device="stent">+ Stent</button>
-        <button class="btn btn-sm btn-ghost" data-add-device="pos">+ Balão (pós-dilatação)</button>
+        <select data-device-type-picker>${DEVICE_FASE_GROUPS.map(g => '<optgroup label="' + esc(g.label) + '">' +
+          g.fases.map(f => `<option value="${f}">${esc(DEVICE_FASE_LABELS[f])}</option>`).join('') + '</optgroup>').join('')}</select>
+        <button class="btn btn-sm" data-add-device-btn>+ Adicionar dispositivo</button>
       </div>
     </div>
 
@@ -958,12 +1313,12 @@ function wireApVesselEvents(){
       updateAngioplastiaPreview();
     });
 
-    card.querySelectorAll('[data-add-device]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        v.devices.push(newDevice(btn.dataset.addDevice));
-        renderApVessels();
-        updateAngioplastiaPreview();
-      });
+    const deviceTypePicker = card.querySelector('[data-device-type-picker]');
+    const addDeviceBtn = card.querySelector('[data-add-device-btn]');
+    if(addDeviceBtn) addDeviceBtn.addEventListener('click', ()=>{
+      v.devices.push(newDevice(deviceTypePicker.value));
+      renderApVessels();
+      updateAngioplastiaPreview();
     });
 
     card.querySelectorAll('[data-vcomp]').forEach(chip=>{
@@ -979,10 +1334,32 @@ function wireApVesselEvents(){
       const did = drow.dataset.did;
       const d = v.devices.find(x=>x.id===did);
       drow.querySelectorAll('[data-dfield]').forEach(inp=>{
-        const evt = inp.tagName === 'SELECT' ? 'change' : 'input';
+        const isCheckbox = inp.type === 'checkbox';
+        const evt = isCheckbox ? 'change' : (inp.tagName === 'SELECT' ? 'change' : 'input');
         inp.addEventListener(evt, ()=>{
-          d[inp.dataset.dfield] = inp.value;
-          if(inp.dataset.dfield === 'fase'){ renderApVessels(); }
+          d[inp.dataset.dfield] = isCheckbox ? inp.checked : inp.value;
+          /* changing the fase, or a checkbox that shows/hides its own sub-fields
+             (semLesao, calcio), needs the row's markup fully rebuilt */
+          if(inp.dataset.dfield === 'fase' || inp.dataset.dfield === 'semLesao' || inp.dataset.dfield === 'calcio'){
+            renderApVessels();
+          }
+          updateAngioplastiaPreview();
+        });
+      });
+      drow.querySelectorAll('[data-carac]').forEach(chip=>{
+        chip.addEventListener('click', ()=>{
+          const c = chip.dataset.carac;
+          if(d.caracteristicas.has(c)) d.caracteristicas.delete(c); else d.caracteristicas.add(c);
+          setChipPressed(chip, d.caracteristicas.has(c));
+          updateAngioplastiaPreview();
+        });
+      });
+      drow.querySelectorAll('[data-sinal]').forEach(chip=>{
+        chip.addEventListener('click', ()=>{
+          const s = chip.dataset.sinal;
+          if(d.sinaisModificacao.has(s)) d.sinaisModificacao.delete(s); else d.sinaisModificacao.add(s);
+          setChipPressed(chip, d.sinaisModificacao.has(s));
+          if(s === 'Outros') renderApVessels();
           updateAngioplastiaPreview();
         });
       });
@@ -995,7 +1372,8 @@ function wireApVesselEvents(){
   });
 }
 
-['ap_via','ap_puncao','ap_lado','ap_introdutor','ap_hemostasia','ap_anestesia','ap_contrasteTipo','ap_contrasteVolume','ap_conclusaoExtra',
+['ap_via','ap_puncao','ap_lado','ap_introdutor','ap_introdutorCustom','ap_hemostasia','ap_hemostasiaCustom','ap_anestesia',
+ 'ap_contrasteTipo','ap_contrasteTipoCustom','ap_contrasteVolume','ap_conclusaoExtra',
  'ap_medicacaoOutras','ap_intercorrenciasObs'
 ].forEach(id=>{
   const el = document.getElementById(id);
@@ -1047,6 +1425,57 @@ function vesselProcedureClause(v){
   return `Cateterização diagnóstica da(o) ${label}, sem intervenção`;
 }
 
+/* IVUS/OCT "antes da ICP" reaproveita a mesma frase da coronariografia
+   diagnóstica (buildImagingSentence), só que com o diâmetro de referência
+   do vaso distal adicionado ao final da primeira linha. */
+function deviceToImagingCfg(d, modality){
+  return {
+    modality, catheter: modality === 'IVUS' ? 'OptiCross 40MHz' : 'C7 Dragonfly OpStar',
+    arteria: d.arteria, velocidade: modality === 'IVUS' ? d.velocidade : null,
+    diametroReferencia: d.diametroReferencia,
+    semLesao: d.semLesao, localizacao: d.localizacao,
+    caracteristicas: Array.from(d.caracteristicas || []),
+    alm: d.alm, dim1: d.dim1, dim2: d.dim2,
+    cargaPlaca: modality === 'IVUS' ? d.cargaPlaca : null,
+    calcio: d.calcio, calcioEspessura: d.calcioEspessura, calcioExtensao: d.calcioExtensao,
+    calcioArco: d.calcioArco, nodulo: d.nodulo, obs: d.obs,
+  };
+}
+
+function buildReimagingSentence(modality, d){
+  const catheter = modality === 'IVUS' ? 'OptiCross 40MHz' : 'C7 Dragonfly OpStar';
+  const arteria = (d.arteria || '').trim() || '***';
+  let s = `Realizado novamente ${modality} da artéria ${arteria} com cateter ${catheter}. `;
+  s += (modality === 'IVUS' && d.velocidade)
+    ? `Aquisição de imagens utilizando recuo automático do cateter a ${d.velocidade} mm/s.`
+    : `Aquisição de imagens utilizando recuo automático do cateter a 75 mm/s.`;
+  const sinais = Array.from(d.sinaisModificacao || []);
+  if(sinais.length){
+    const labels = sinais.map(sg => (sg === 'Outros' && d.sinaisModificacaoOutro && d.sinaisModificacaoOutro.trim()) ? d.sinaisModificacaoOutro.trim() : sg);
+    s += ` Evidenciado sinais de modificação do cálcio: ${labels.join(', ').toLowerCase()}.`;
+  } else {
+    s += ' Não evidenciados sinais de modificação do cálcio.';
+  }
+  return s;
+}
+
+function buildStentAreaSentence(modality, d){
+  let s = `Após angioplastia, realizado ${modality} da artéria tratada, evidenciando stent farmacológico bem expandido e bem aposto, sem dissecção de bordas.`;
+  if(d.areaMinimaStent) s += ` Área mínima do stent de ${d.areaMinimaStent} mm².`;
+  if(d.obs && d.obs.trim()) s += ' ' + d.obs.trim();
+  return s;
+}
+
+function buildRotablatorSentence(d){
+  return `Preparo da lesão calcificada por meio de sistema de aterectomia rotacional Rotablator®, burr ${d.diametro || '***'} mm.`;
+}
+function buildLitotripsiaSentence(d){
+  return `Preparo da lesão calcificada por meio de sistema de litotripsia intracoronária Shockwave C2+ IVL ${d.diametro || '***'} x ${d.comprimento || '***'} mm com ${d.pulsos || '***'} pulsos.`;
+}
+function buildCuttingBalloonSentence(d){
+  return `Realizado preparo da lesão calcificada com balão Wolverine Coronary Cutting Balloon ${d.diametro || '***'} x ${d.comprimento || '***'} mm a ${d.pressao || '18'} atm.`;
+}
+
 function buildAngioplastiaText(){
   const s = state.angioplastia;
   const g = id => document.getElementById(id).value;
@@ -1062,12 +1491,15 @@ function buildAngioplastiaText(){
   }
 
   out.push('\nTÉCNICA');
+  const apIntrodutorVal = resolveCustomSelect('ap_introdutor', 'ap_introdutorCustom');
+  const apHemostasiaVal = resolveCustomSelect('ap_hemostasia', 'ap_hemostasiaCustom');
+  const apContrasteVal = resolveCustomSelect('ap_contrasteTipo', 'ap_contrasteTipoCustom');
   let tecLine = `Via de Acesso: ${g('ap_via')}, punção ${g('ap_puncao').toLowerCase()} ${g('ap_lado').toLowerCase()}`;
-  if(g('ap_introdutor').trim()) tecLine += `, introdutor ${g('ap_introdutor').trim()}`;
-  if(g('ap_hemostasia').trim()) tecLine += `, hemostasia com ${g('ap_hemostasia').trim().toLowerCase()}`;
+  if(apIntrodutorVal.trim()) tecLine += `, introdutor ${apIntrodutorVal.trim()}`;
+  if(apHemostasiaVal.trim()) tecLine += `, hemostasia com ${apHemostasiaVal.trim().toLowerCase()}`;
   out.push(tecLine + '.');
   if(g('ap_anestesia').trim()) out.push('Anestesia: ' + g('ap_anestesia').trim() + '.');
-  out.push(`Contraste: ${g('ap_contrasteTipo').trim()}, volume (ml) = ${g('ap_contrasteVolume') || '0'}.`);
+  out.push(`Contraste: ${apContrasteVal.trim()}, volume (ml) = ${g('ap_contrasteVolume') || '0'}.`);
   const medList = Array.from(s.medicacao);
   const medOutras = g('ap_medicacaoOutras').trim();
   if(medOutras) medList.push(medOutras);
@@ -1091,11 +1523,24 @@ function buildAngioplastiaText(){
     }
     steps.push('Posicionamento de fio-guia 0,014" na porção distal.');
 
-    const pre = v.devices.filter(d=>d.fase==='pre');
-    const stent = v.devices.filter(d=>d.fase==='stent');
-    const pos = v.devices.filter(d=>d.fase==='pos');
+    /* devices are grouped by fase and walked in a fixed clinical order —
+       imaging/lesion-prep before pré-dilatação, stent, then imaging/pos-
+       dilatação — rather than by the order rows happen to sit in the list */
+    const byFase = fase => v.devices.filter(d=>d.fase===fase);
 
+    byFase('ivus_pre').forEach(d => steps.push(buildImagingSentence(deviceToImagingCfg(d,'IVUS'))));
+    byFase('oct_pre').forEach(d => steps.push(buildImagingSentence(deviceToImagingCfg(d,'OCT'))));
+    byFase('rotablator').forEach(d => steps.push(buildRotablatorSentence(d)));
+    byFase('litotripsia').forEach(d => steps.push(buildLitotripsiaSentence(d)));
+    byFase('cutting_balloon').forEach(d => steps.push(buildCuttingBalloonSentence(d)));
+
+    const pre = byFase('pre');
     if(pre.length) steps.push('Pré-dilatação com balão ' + joinList(pre.map(deviceDescLabel)) + '.');
+
+    byFase('ivus_pos_pre').forEach(d => steps.push(buildReimagingSentence('IVUS', d)));
+    byFase('oct_pos_pre').forEach(d => steps.push(buildReimagingSentence('OCT', d)));
+
+    const stent = byFase('stent');
     if(stent.length){
       const farm = stent.filter(d=>d.tipoStent==='Farmacológico');
       const conv = stent.filter(d=>d.tipoStent==='Convencional');
@@ -1104,6 +1549,11 @@ function buildAngioplastiaText(){
       if(conv.length) stentParts.push('stent convencional ' + joinList(conv.map(deviceDescLabel)));
       steps.push('Implante de ' + stentParts.join(' e ') + '.');
     }
+
+    byFase('ivus_pos_stent').forEach(d => steps.push(buildStentAreaSentence('IVUS', d)));
+    byFase('oct_pos_stent').forEach(d => steps.push(buildStentAreaSentence('OCT', d)));
+
+    const pos = byFase('pos');
     if(pos.length) steps.push('Pós-dilatação com balão ' + joinList(pos.map(deviceDescLabel)) + '.');
 
     let closing = 'Ao final, evidenciado ';
@@ -1269,20 +1719,26 @@ function startNewReport(){
   state.angiografia.vasos = [];
   state.angiografia.metodos = new Set();
   state.angiografia.metodosInfluencia = null;
-  GA_FIELD_IDS.forEach(id => { document.getElementById(id).value = GA_DEFAULTS[id]; });
+  GA_FIELD_IDS.forEach(id => setFieldValue(id, GA_DEFAULTS[id]));
+  syncGaIntrodutorWrap(); syncGaHemostasiaWrap(); syncGaContrasteWrap();
   document.getElementById('ga_colateralDetalheWrap').style.display = 'none';
   document.getElementById('ga_padraoCustomWrap').style.display = 'none';
-  document.getElementById('ga_metodosInfluenciaWrap').style.display = 'none';
-  document.getElementById('ga_metodosAchadosWrap').style.display = 'none';
   resetChipGroup('#ga_metodos .chip');
   resetChipGroup('#ga_metodosInfluenciaWrap .chip');
+  syncGaMetodosWraps();
+  gaIvusCaracteristicas.clear();
+  gaOctCaracteristicas.clear();
+  resetChipGroup('#ga_ivus_caracteristicas .chip');
+  resetChipGroup('#ga_oct_caracteristicas .chip');
+  syncGaIvusDetalhes(); syncGaIvusCalcio(); syncGaOctDetalhes(); syncGaOctCalcio();
   disarmLoadDefaults();
   syncPonteVisibility();
 
   state.angioplastia.vasos = [];
   state.angioplastia.medicacao = new Set();
   state.angioplastia.intercorrencias = new Set();
-  AP_FIELD_IDS.forEach(id => { document.getElementById(id).value = AP_DEFAULTS[id]; });
+  AP_FIELD_IDS.forEach(id => setFieldValue(id, AP_DEFAULTS[id]));
+  syncApIntrodutorWrap(); syncApHemostasiaWrap(); syncApContrasteWrap();
   resetChipGroup('#ap_medicacao .chip');
   resetChipGroup('#ap_intercorrencias .chip');
 
@@ -1336,16 +1792,23 @@ loadPatientData();
 document.querySelectorAll('#ga_metodos .chip').forEach(chip=>{
   setChipPressed(chip, state.angiografia.metodos.has(chip.dataset.key));
 });
-const gaHasMetodos = state.angiografia.metodos.size > 0;
-document.getElementById('ga_metodosInfluenciaWrap').style.display = gaHasMetodos ? 'flex' : 'none';
-document.getElementById('ga_metodosAchadosWrap').style.display = gaHasMetodos ? 'flex' : 'none';
+syncGaMetodosWraps();
 document.querySelectorAll('#ga_metodosInfluenciaWrap .chip').forEach(chip=>{
   setChipPressed(chip, chip.dataset.influencia === state.angiografia.metodosInfluencia);
 });
+document.querySelectorAll('#ga_ivus_caracteristicas .chip').forEach(chip=>{
+  setChipPressed(chip, gaIvusCaracteristicas.has(chip.dataset.carac));
+});
+document.querySelectorAll('#ga_oct_caracteristicas .chip').forEach(chip=>{
+  setChipPressed(chip, gaOctCaracteristicas.has(chip.dataset.carac));
+});
+syncGaIvusDetalhes(); syncGaIvusCalcio(); syncGaOctDetalhes(); syncGaOctCalcio();
 document.getElementById('ga_colateralDetalheWrap').style.display =
   document.getElementById('ga_colateral').value === 'Presente' ? 'flex' : 'none';
 document.getElementById('ga_padraoCustomWrap').style.display =
   document.getElementById('ga_padrao').value === 'custom' ? 'flex' : 'none';
+syncGaIntrodutorWrap(); syncGaHemostasiaWrap(); syncGaContrasteWrap();
+syncApIntrodutorWrap(); syncApHemostasiaWrap(); syncApContrasteWrap();
 syncPonteVisibility();
 
 document.querySelectorAll('#ap_medicacao .chip').forEach(chip=>{

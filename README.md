@@ -11,10 +11,14 @@ depende de servidor nem de internet, exceto para carregar as fontes). Duas
 abas:
 
 - **Coronariografia** — técnica de acesso, vasos avaliados, achados,
-  circulação colateral, padrão obstrutivo, métodos adjuntos (IVUS/FFR/QCA/OCT),
+  circulação colateral (com opção de omitir do laudo), padrão obstrutivo,
+  métodos adjuntos (IVUS/FFR/QCA/OCT) — IVUS e OCT têm um construtor de frase
+  padrão com campos estruturados, além do campo de texto livre —,
   ventriculografia e aortografia.
 - **Angioplastia** — técnica, medicação, intercorrências, vasos tratados com
-  seus dispositivos (balões e stents, em ordem), resultado e conclusão.
+  seus dispositivos em ordem clínica: IVUS/OCT (antes da ICP, após
+  pré-dilatação, após o stent), Rotablator, litotripsia intracoronária,
+  cutting balloon, balões e stents — resultado e conclusão.
 
 O texto do laudo é montado em tempo real no painel da direita e pode ser
 copiado com um clique.

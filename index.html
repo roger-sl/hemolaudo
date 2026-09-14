@@ -59,6 +59,7 @@
     <div class="card">
       <div class="card-head">
         <div class="card-head-left"><span class="eyebrow">Técnica</span><span class="card-title">Acesso e contraste</span></div>
+        <button class="btn btn-sm btn-ghost" id="ga_tecnicaClear" type="button" title="Restaura via, punção, introdutor, hemostasia e contraste para o padrão">Limpar</button>
       </div>
       <div class="card-body">
         <div class="field-grid">
@@ -66,33 +67,47 @@
             <select id="ga_via"><option>Arterial</option><option>Venosa</option></select>
           </div>
           <div class="field"><label>Punção</label>
-            <select id="ga_puncao"><option>Radial</option><option>Femoral</option><option>Braquial</option><option>Ulnar</option></select>
+            <select id="ga_puncao">
+              <option>Radial</option><option>Femoral</option><option>Braquial</option><option>Ulnar</option>
+              <option>Jugular interna</option><option>Subclávia</option><option>Axilar</option>
+            </select>
           </div>
           <div class="field"><label>Lado</label>
             <select id="ga_lado"><option>Direita</option><option>Esquerda</option></select>
           </div>
           <div class="field"><label>Introdutor</label>
-            <input type="text" id="ga_introdutor" value="6F">
+            <select id="ga_introdutor">
+              <option>4F</option><option>5F</option><option value="6F" selected>6F</option><option>7F</option><option>8F</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+          </div>
+          <div class="field" id="ga_introdutorCustomWrap" style="display:none;"><label>Introdutor (personalizado)</label>
+            <input type="text" id="ga_introdutorCustom">
           </div>
           <div class="field span-2"><label>Hemostasia</label>
-            <input type="text" id="ga_hemostasia" value="Pulseira de compressão radial" list="hemostasiaOptions">
-            <datalist id="hemostasiaOptions">
-              <option value="Pulseira de compressão radial">
-              <option value="Compressão manual">
-              <option value="Dispositivo de fechamento vascular">
-              <option value="Curativo compressivo">
-            </datalist>
+            <select id="ga_hemostasia">
+              <option value="Pulseira de compressão radial" selected>Pulseira de compressão radial</option>
+              <option value="Compressão manual">Compressão manual</option>
+              <option value="Dispositivo de fechamento vascular">Dispositivo de fechamento vascular</option>
+              <option value="Curativo compressivo">Curativo compressivo</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+          </div>
+          <div class="field span-2" id="ga_hemostasiaCustomWrap" style="display:none;"><label>Hemostasia (personalizado)</label>
+            <input type="text" id="ga_hemostasiaCustom">
           </div>
           <div class="field span-2"><label>Contraste</label>
-            <input type="text" id="ga_contrasteTipo" value="Não-iônico baixa osmolaridade" list="contrasteOptionsGA">
-            <datalist id="contrasteOptionsGA">
-              <option value="Não-iônico baixa osmolaridade">
-              <option value="Isosmolar">
-              <option value="Iônico hiperosmolar">
-            </datalist>
+            <select id="ga_contrasteTipo">
+              <option value="Não-iônico baixa osmolaridade" selected>Não-iônico baixa osmolaridade</option>
+              <option value="Não-iônico isosmolar">Não-iônico isosmolar</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+          </div>
+          <div class="field span-2" id="ga_contrasteTipoCustomWrap" style="display:none;"><label>Contraste (personalizado)</label>
+            <input type="text" id="ga_contrasteTipoCustom">
           </div>
           <div class="field"><label>Volume</label>
-            <div class="unit-field"><input type="number" id="ga_contrasteVolume" value="80" min="0"><span>ml</span></div>
+            <div class="unit-field"><input type="number" id="ga_contrasteVolume" min="0" placeholder="ex.: 80"><span>ml</span></div>
           </div>
         </div>
       </div>
@@ -153,6 +168,10 @@
           <div class="field span-2" id="ga_colateralDetalheWrap" style="display:none;"><label>Fonte / direção / intensidade</label>
             <input type="text" id="ga_colateralDetalhe" placeholder="ex.: via DA, para CD, intensidade Rentrop 2">
           </div>
+          <div class="field span-2">
+            <label class="checkline"><input type="checkbox" id="ga_colateralIncluir" checked> Incluir circulação colateral no laudo</label>
+            <p class="hint" style="margin-top:2px;">Desmarque quando a menção não fizer sentido no caso (normalmente só é relevante havendo uma artéria ocluída).</p>
+          </div>
           <div class="field span-2"><label>Padrão obstrutivo</label>
             <select id="ga_padrao">
               <option value="Sem lesões obstrutivas significativas">Sem lesões obstrutivas significativas</option>
@@ -186,6 +205,114 @@
             <button class="chip" aria-pressed="false" data-key="OCT">OCT</button>
           </div>
         </div>
+
+        <div class="field" id="ga_ivusBuilderWrap" style="display:none;">
+          <div class="subcard">
+            <span class="card-sub" style="font-weight:700; color:var(--ink-soft);">IVUS — montar frase padrão</span>
+            <div class="field-grid">
+              <div class="field"><label>Artéria avaliada</label>
+                <input type="text" id="ga_ivus_arteria" placeholder="ex.: DA">
+              </div>
+              <div class="field"><label>Velocidade de recuo (pullback)</label>
+                <div class="unit-field"><input type="number" step="0.1" id="ga_ivus_velocidade" placeholder="ex.: 0,5"><span>mm/s</span></div>
+              </div>
+            </div>
+            <label class="checkline"><input type="checkbox" id="ga_ivus_semLesao"> Não foi observada lesão significativa</label>
+            <div id="ga_ivus_detalhesWrap">
+              <div class="field-grid">
+                <div class="field"><label>Localização</label>
+                  <select id="ga_ivus_localizacao"><option>Proximal</option><option>Médio</option><option>Distal</option></select>
+                </div>
+                <div class="field"><label>Área luminal mínima</label>
+                  <div class="unit-field"><input type="number" step="0.01" id="ga_ivus_alm"><span>mm²</span></div>
+                </div>
+                <div class="field"><label>Dimensões (menor x maior)</label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <input type="number" step="0.01" id="ga_ivus_dim1" placeholder="mm">
+                    <span style="color:var(--muted);">x</span>
+                    <input type="number" step="0.01" id="ga_ivus_dim2" placeholder="mm">
+                  </div>
+                </div>
+                <div class="field"><label>Carga de placa</label>
+                  <div class="unit-field"><input type="number" id="ga_ivus_cargaPlaca"><span>%</span></div>
+                </div>
+              </div>
+              <div class="field"><label>Características da placa</label>
+                <div class="chip-group" id="ga_ivus_caracteristicas"></div>
+              </div>
+              <label class="checkline"><input type="checkbox" id="ga_ivus_calcio"> Presença de cálcio</label>
+              <div class="field-grid" id="ga_ivus_calcioWrap" style="display:none;">
+                <div class="field"><label>Extensão do cálcio</label>
+                  <div class="unit-field"><input type="number" step="0.1" id="ga_ivus_calcioExtensao"><span>mm</span></div>
+                </div>
+                <div class="field"><label>Arco de cálcio</label>
+                  <select id="ga_ivus_calcioArco">
+                    <option value="gt270">Maior que 270°</option>
+                    <option value="lt270">Menor que 270°</option>
+                    <option value="360">360° (circunferencial)</option>
+                  </select>
+                </div>
+                <div class="field span-2"><label class="checkline"><input type="checkbox" id="ga_ivus_nodulo"> Nódulo de cálcio presente</label></div>
+              </div>
+            </div>
+            <div class="field"><label>Observações do IVUS (opcional)</label>
+              <textarea id="ga_ivus_obs" placeholder="detalhes adicionais sobre o achado do IVUS..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" id="ga_octBuilderWrap" style="display:none;">
+          <div class="subcard">
+            <span class="card-sub" style="font-weight:700; color:var(--ink-soft);">OCT — montar frase padrão</span>
+            <div class="field-grid">
+              <div class="field span-2"><label>Artéria avaliada</label>
+                <input type="text" id="ga_oct_arteria" placeholder="ex.: DA">
+              </div>
+            </div>
+            <label class="checkline"><input type="checkbox" id="ga_oct_semLesao"> Não foi observada lesão significativa</label>
+            <div id="ga_oct_detalhesWrap">
+              <div class="field-grid">
+                <div class="field"><label>Localização</label>
+                  <select id="ga_oct_localizacao"><option>Proximal</option><option>Médio</option><option>Distal</option></select>
+                </div>
+                <div class="field"><label>Área luminal mínima</label>
+                  <div class="unit-field"><input type="number" step="0.01" id="ga_oct_alm"><span>mm²</span></div>
+                </div>
+                <div class="field"><label>Dimensões (menor x maior)</label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <input type="number" step="0.01" id="ga_oct_dim1" placeholder="mm">
+                    <span style="color:var(--muted);">x</span>
+                    <input type="number" step="0.01" id="ga_oct_dim2" placeholder="mm">
+                  </div>
+                </div>
+              </div>
+              <div class="field"><label>Características da placa</label>
+                <div class="chip-group" id="ga_oct_caracteristicas"></div>
+              </div>
+              <label class="checkline"><input type="checkbox" id="ga_oct_calcio"> Presença de cálcio</label>
+              <div class="field-grid" id="ga_oct_calcioWrap" style="display:none;">
+                <div class="field"><label>Espessura do cálcio</label>
+                  <div class="unit-field"><input type="number" step="0.01" id="ga_oct_calcioEspessura"><span>mm</span></div>
+                </div>
+                <div class="field"><label>Extensão do cálcio</label>
+                  <div class="unit-field"><input type="number" step="0.1" id="ga_oct_calcioExtensao"><span>mm</span></div>
+                </div>
+                <div class="field"><label>Arco de cálcio</label>
+                  <select id="ga_oct_calcioArco">
+                    <option value="gt270">Maior que 270°</option>
+                    <option value="lt270">Menor que 270°</option>
+                    <option value="360">360° (circunferencial)</option>
+                  </select>
+                </div>
+                <div class="field"><label class="checkline"><input type="checkbox" id="ga_oct_nodulo"> Nódulo de cálcio presente</label></div>
+              </div>
+            </div>
+            <div class="field"><label>Observações do OCT (opcional)</label>
+              <textarea id="ga_oct_obs" placeholder="detalhes adicionais sobre o achado do OCT..."></textarea>
+            </div>
+          </div>
+        </div>
+
         <div class="field" id="ga_metodosInfluenciaWrap" style="display:none;">
           <label>Influenciou a conduta terapêutica?</label>
           <div class="chip-group">
@@ -194,8 +321,8 @@
           </div>
         </div>
         <div class="field" id="ga_metodosAchadosWrap" style="display:none;">
-          <label>Achados dos métodos adjuntos</label>
-          <textarea id="ga_metodosAchados" placeholder="ex.: FFR de 0,76 na DA médio, indicando isquemia. OCT evidenciando placa fibrocalcificada com área luminal mínima de 3,1 mm²..."></textarea>
+          <label>Achados adicionais (FFR/QCA ou complemento livre)</label>
+          <textarea id="ga_metodosAchados" placeholder="ex.: FFR de 0,76 na DA médio, indicando isquemia. Este texto entra depois das frases de IVUS/OCT montadas acima."></textarea>
         </div>
         <div class="field"><label>Ventriculografia esquerda</label>
           <textarea id="ga_ventriculografia" placeholder="ex.: Não realizada por solicitação médica / Normocinética, sem discinesias, FE preservada..."></textarea>
@@ -235,6 +362,7 @@
     <div class="card">
       <div class="card-head">
         <div class="card-head-left"><span class="eyebrow">Técnica</span><span class="card-title">Acesso, anestesia e contraste</span></div>
+        <button class="btn btn-sm btn-ghost" id="ap_tecnicaClear" type="button" title="Restaura via, punção, introdutor, hemostasia e contraste para o padrão">Limpar</button>
       </div>
       <div class="card-body">
         <div class="field-grid">
@@ -242,31 +370,50 @@
             <select id="ap_via"><option>Arterial</option><option>Venosa</option></select>
           </div>
           <div class="field"><label>Punção</label>
-            <select id="ap_puncao"><option>Radial</option><option>Femoral</option><option>Braquial</option><option>Ulnar</option></select>
+            <select id="ap_puncao">
+              <option>Radial</option><option>Femoral</option><option>Braquial</option><option>Ulnar</option>
+              <option>Jugular interna</option><option>Subclávia</option><option>Axilar</option>
+            </select>
           </div>
           <div class="field"><label>Lado</label>
             <select id="ap_lado"><option>Direita</option><option>Esquerda</option></select>
           </div>
           <div class="field"><label>Introdutor</label>
-            <input type="text" id="ap_introdutor" value="6F">
+            <select id="ap_introdutor">
+              <option>4F</option><option>5F</option><option value="6F" selected>6F</option><option>7F</option><option>8F</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+          </div>
+          <div class="field" id="ap_introdutorCustomWrap" style="display:none;"><label>Introdutor (personalizado)</label>
+            <input type="text" id="ap_introdutorCustom">
           </div>
           <div class="field span-2"><label>Hemostasia</label>
-            <input type="text" id="ap_hemostasia" value="Pulseira de compressão radial" list="hemostasiaOptions2">
-            <datalist id="hemostasiaOptions2">
-              <option value="Pulseira de compressão radial">
-              <option value="Compressão manual">
-              <option value="Dispositivo de fechamento vascular">
-              <option value="Curativo compressivo">
-            </datalist>
+            <select id="ap_hemostasia">
+              <option value="Pulseira de compressão radial" selected>Pulseira de compressão radial</option>
+              <option value="Compressão manual">Compressão manual</option>
+              <option value="Dispositivo de fechamento vascular">Dispositivo de fechamento vascular</option>
+              <option value="Curativo compressivo">Curativo compressivo</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+          </div>
+          <div class="field span-2" id="ap_hemostasiaCustomWrap" style="display:none;"><label>Hemostasia (personalizado)</label>
+            <input type="text" id="ap_hemostasiaCustom">
           </div>
           <div class="field span-2"><label>Anestesia</label>
             <input type="text" id="ap_anestesia" value="Local, no sítio de punção">
           </div>
           <div class="field span-2"><label>Contraste</label>
-            <input type="text" id="ap_contrasteTipo" value="Não-iônico baixa osmolaridade">
+            <select id="ap_contrasteTipo">
+              <option value="Não-iônico baixa osmolaridade" selected>Não-iônico baixa osmolaridade</option>
+              <option value="Não-iônico isosmolar">Não-iônico isosmolar</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+          </div>
+          <div class="field span-2" id="ap_contrasteTipoCustomWrap" style="display:none;"><label>Contraste (personalizado)</label>
+            <input type="text" id="ap_contrasteTipoCustom">
           </div>
           <div class="field"><label>Volume</label>
-            <div class="unit-field"><input type="number" id="ap_contrasteVolume" value="150" min="0"><span>ml</span></div>
+            <div class="unit-field"><input type="number" id="ap_contrasteVolume" min="0" placeholder="ex.: 150"><span>ml</span></div>
           </div>
         </div>
         <div class="field">
